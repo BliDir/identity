@@ -1,0 +1,12 @@
+.git
+.github
+target
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+CONTRIBUTING.md
+benches
+examples
+tests
+*.rs.bk
