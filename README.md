@@ -90,6 +90,14 @@ current stable Rust image used by Docker.
 PostgreSQL 18 stores versioned database data under `/var/lib/postgresql`, so the
 Compose volume is mounted there instead of directly at `/var/lib/postgresql/data`.
 
+## Automation
+
+CI runs `make check` and `make build` on every push and pull request.
+
+When changes are merged into `main`, GitHub Actions creates or updates a draft
+release for the current crate version, such as `v0.1.0`. Published releases are
+not modified automatically.
+
 ## Development
 
 Keep domain logic in `src/lib.rs` or modules under `src/`, and keep `src/main.rs`

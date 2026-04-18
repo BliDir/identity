@@ -1,0 +1,94 @@
+name: Draft Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: draft-release-main
+  cancel-in-progress: false
+
+jobs:
+  draft-release:
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Run make check
+        run: make check
+
+      - name: Build
+        run: make build
+
+      - name: Read crate version
+        id: crate
+        run: |
+          version="$(
+            cargo metadata --no-deps --format-version 1 \
+              | python3 -c 'import json, sys; data = json.load(sys.stdin); print(next(package["version"] for package in data["packages"] if package["name"] == "identity"))'
+          )"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<EOF
+          ## Why
+
+          This draft release was created automatically after changes were merged into \`main\`.
+
+          ## What is in this release
+
+          - Identity service changes merged into \`main\`.
+          - Verified with \`make check\`.
+          - Verified with \`make build\`.
+
+          ## Source
+
+          Commit: ${GITHUB_SHA}
+          EOF
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.crate.outputs.tag }}
+          VERSION: ${{ steps.crate.outputs.version }}
+        run: |
+          release_state="$(gh release view "${TAG_NAME}" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
+
+          if [ "${release_state}" = "false" ]; then
+            echo "Release ${TAG_NAME} is already published; skipping draft update."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --force "${TAG_NAME}" "${GITHUB_SHA}"
+          git push --force origin "refs/tags/${TAG_NAME}"
+
+          if [ "${release_state}" = "true" ]; then
+            gh release edit "${TAG_NAME}" \
+              --draft \
+              --title "${TAG_NAME}" \
+              --notes-file release-notes.md
+          else
+            gh release create "${TAG_NAME}" \
+              --draft \
+              --title "${TAG_NAME}" \
+              --notes-file release-notes.md \
+              --target "${GITHUB_SHA}"
+          fi
