@@ -95,8 +95,10 @@ Compose volume is mounted there instead of directly at `/var/lib/postgresql/data
 CI runs `make check` and `make build` on every push and pull request.
 
 When changes are merged into `main`, GitHub Actions creates or updates a draft
-release using the current semantic Cargo crate version, such as `v0.1.0`.
-Published releases are not modified automatically.
+release with an automatically incremented semantic version tag. If no semantic
+release tag exists, it starts at `v0.1.0`; otherwise it increments the patch
+version, such as `v0.1.0` to `v0.1.1`. Published releases are not modified
+automatically.
 
 ## Development
 

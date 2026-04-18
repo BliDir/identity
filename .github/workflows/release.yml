@@ -34,21 +34,54 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Read crate version
-        id: crate
+      - name: Calculate next release version
+        id: release
         run: |
-          version="$(
-            cargo metadata --no-deps --format-version 1 \
-              | python3 -c 'import json, sys; data = json.load(sys.stdin); print(next(package["version"] for package in data["packages"] if package["name"] == "identity"))'
-          )"
+          git fetch --force --tags origin
 
-          if ! printf '%s' "${version}" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
-            echo "Cargo package version must be semantic versioning compatible: ${version}" >&2
-            exit 1
-          fi
+          python3 <<'PY' >> "${GITHUB_OUTPUT}"
+          import re
+          import subprocess
 
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
+          stable_semver = re.compile(r"^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+
+          def git_lines(*args):
+              output = subprocess.check_output(["git", *args], text=True)
+              return [line.strip() for line in output.splitlines() if line.strip()]
+
+          def parse_tag(tag):
+              match = stable_semver.match(tag)
+              if not match:
+                  return None
+              return tuple(int(part) for part in match.groups())
+
+          head_tags = []
+          for tag in git_lines("tag", "--points-at", "HEAD"):
+              version = parse_tag(tag)
+              if version is not None:
+                  head_tags.append((version, tag))
+
+          if head_tags:
+              version, tag = max(head_tags)
+          else:
+              versions = []
+              for tag in git_lines("tag", "--list"):
+                  version = parse_tag(tag)
+                  if version is not None:
+                      versions.append(version)
+
+              if versions:
+                  major, minor, patch = max(versions)
+                  version = (major, minor, patch + 1)
+              else:
+                  version = (0, 1, 0)
+
+              tag = f"v{version[0]}.{version[1]}.{version[2]}"
+
+          version_text = f"{version[0]}.{version[1]}.{version[2]}"
+          print(f"version={version_text}")
+          print(f"tag={tag}")
+          PY
 
       - name: Write release notes
         run: |
@@ -71,8 +104,8 @@ jobs:
       - name: Create or update draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ steps.crate.outputs.tag }}
-          VERSION: ${{ steps.crate.outputs.version }}
+          TAG_NAME: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           release_state="$(gh release view "${TAG_NAME}" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
 
