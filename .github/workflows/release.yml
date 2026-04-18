@@ -186,9 +186,52 @@ jobs:
           )"
 
           unmapped_contributors="$(
-            git log "${contributor_range}" --format='%aN <%aE>' \
-              | sort -fu \
-              | sed 's/^/- /'
+            for commit_sha in ${commit_shas}; do
+              commit_json="$(
+                gh api "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" 2>/dev/null || echo "{}"
+              )"
+
+              printf '%s' "${commit_json}" | python3 <<'PY'
+          import hashlib
+          import html
+          import json
+          import sys
+
+          data = json.load(sys.stdin)
+          commit = data.get("commit", {})
+          author = commit.get("author") or {}
+          name = author.get("name") or "Unknown author"
+          email = author.get("email") or ""
+          user = data.get("author") or {}
+          login = user.get("login")
+
+          if login:
+              avatar = f"https://github.com/{login}.png?size=40"
+              href = f"https://github.com/{login}"
+              label = f"@{login}"
+          elif email:
+              digest = hashlib.md5(email.strip().lower().encode()).hexdigest()
+              avatar = f"https://www.gravatar.com/avatar/{digest}?d=identicon&s=40"
+              href = f"mailto:{email}"
+              label = f"{name} <{email}>"
+          else:
+              avatar = "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=40"
+              href = "#"
+              label = name
+
+          print(
+              '- <a href="{href}"><img src="{avatar}" width="20" height="20" '
+              'alt="{alt}" /> {label}</a>'.format(
+                  href=html.escape(href, quote=True),
+                  avatar=html.escape(avatar, quote=True),
+                  alt=html.escape(label, quote=True),
+                  label=html.escape(label),
+              )
+          )
+          PY
+            done | sort -fu
           )"
 
           pr_source="- No merged pull request detected for this commit."
