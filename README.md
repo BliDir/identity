@@ -100,12 +100,15 @@ release tag exists, it starts at `v0.1.0`.
 
 Release increments are based on the merged pull request labels:
 
+- Breaking changes use a major bump, such as `v1.2.3` to `v2.0.0`.
 - Bug fixes use a patch bump, such as `v0.1.0` to `v0.1.1`.
 - Features use a minor bump, such as `v0.1.0` to `v0.2.0`.
 
 Use `type:bug` or `release:patch` for bug fixes. Use `type:feature` or
-`release:minor` for features. Patch is the default when no release label is
-present. Published releases are not modified automatically.
+`release:minor` for features. Use `breaking-change` or `release:major` for
+breaking changes. Major wins over minor and patch, minor wins over patch, and
+patch is the default when no release label is present. Published releases are
+not modified automatically.
 
 ## Development
 

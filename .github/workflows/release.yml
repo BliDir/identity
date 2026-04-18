@@ -50,7 +50,9 @@ jobs:
           normalized_labels="$(printf '%s\n' "${labels}" | tr '[:upper:]' '[:lower:]')"
           bump="patch"
 
-          if printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:minor|type:feature|feature|enhancement)$'; then
+          if printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:major|type:breaking|breaking-change|breaking)$'; then
+            bump="major"
+          elif printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:minor|type:feature|feature|enhancement)$'; then
             bump="minor"
           elif printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:patch|type:bug|bug|fix)$'; then
             bump="patch"
@@ -104,7 +106,9 @@ jobs:
 
               if versions:
                   major, minor, patch = max(versions)
-                  if bump == "minor":
+                  if bump == "major":
+                      version = (major + 1, 0, 0)
+                  elif bump == "minor":
                       version = (major, minor + 1, 0)
                   else:
                       version = (major, minor, patch + 1)

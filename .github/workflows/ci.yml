@@ -125,6 +125,14 @@ jobs:
               "release:minor": {
                 color: "BFDADC",
                 description: "Force a minor version bump for the next draft release"
+              },
+              "release:major": {
+                color: "5319E7",
+                description: "Force a major version bump for the next draft release"
+              },
+              "breaking-change": {
+                color: "5319E7",
+                description: "Breaking change; draft release workflow uses a major version bump"
               }
             };
 
