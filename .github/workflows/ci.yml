@@ -3,13 +3,19 @@ name: CI
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - master
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test
+  check:
+    name: Make Check And Build
     runs-on: ubuntu-latest
 
     steps:
@@ -21,11 +27,189 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Check formatting
-        run: cargo fmt --check
+      - name: Run make check
+        id: make_check
+        continue-on-error: true
+        run: make check
 
-      - name: Lint
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Diagnose formatting
+        id: fmt
+        if: steps.make_check.outcome == 'failure'
+        continue-on-error: true
+        run: make fmt
 
-      - name: Test
-        run: cargo test --all-targets --all-features
+      - name: Diagnose lint
+        id: lint
+        if: steps.make_check.outcome == 'failure'
+        continue-on-error: true
+        run: make lint
+
+      - name: Diagnose tests
+        id: test
+        if: steps.make_check.outcome == 'failure'
+        continue-on-error: true
+        run: make test
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: make build
+
+      - name: Update PR labels
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const managedLabels = {
+              "ci:passed": {
+                color: "0E8A16",
+                description: "All CI checks passed"
+              },
+              "ci:format-failed": {
+                color: "D93F0B",
+                description: "Rust formatting check failed"
+              },
+              "ci:lint-failed": {
+                color: "D93F0B",
+                description: "Clippy lint check failed"
+              },
+              "ci:test-failed": {
+                color: "D93F0B",
+                description: "Test suite failed"
+              },
+              "ci:build-error": {
+                color: "B60205",
+                description: "Build failed"
+              },
+              "ci:check-failed": {
+                color: "D93F0B",
+                description: "make check failed"
+              }
+            };
+
+            for (const [name, metadata] of Object.entries(managedLabels)) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: metadata.color,
+                  description: metadata.description
+                });
+              }
+            }
+
+            const releaseLabels = {
+              "type:bug": {
+                color: "D73A4A",
+                description: "Bug fix; draft release workflow uses a patch version bump"
+              },
+              "type:feature": {
+                color: "A2EEEF",
+                description: "Feature change; draft release workflow uses a minor version bump"
+              },
+              "release:patch": {
+                color: "C2E0C6",
+                description: "Force a patch version bump for the next draft release"
+              },
+              "release:minor": {
+                color: "BFDADC",
+                description: "Force a minor version bump for the next draft release"
+              },
+              "release:major": {
+                color: "5319E7",
+                description: "Force a major version bump for the next draft release"
+              },
+              "breaking-change": {
+                color: "5319E7",
+                description: "Breaking change; draft release workflow uses a major version bump"
+              }
+            };
+
+            for (const [name, metadata] of Object.entries(releaseLabels)) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: metadata.color,
+                  description: metadata.description
+                });
+              }
+            }
+
+            const makeCheckFailed = "${{ steps.make_check.outcome }}" === "failure";
+            const formatFailed = "${{ steps.fmt.outcome }}" === "failure";
+            const lintFailed = "${{ steps.lint.outcome }}" === "failure";
+            const testFailed = "${{ steps.test.outcome }}" === "failure";
+            const buildFailed = "${{ steps.build.outcome }}" === "failure";
+
+            const labelsToAdd = [];
+
+            if (formatFailed) {
+              labelsToAdd.push("ci:format-failed");
+            }
+
+            if (lintFailed) {
+              labelsToAdd.push("ci:lint-failed");
+            }
+
+            if (testFailed) {
+              labelsToAdd.push("ci:test-failed");
+            }
+
+            if (buildFailed) {
+              labelsToAdd.push("ci:build-error");
+            }
+
+            if (makeCheckFailed && labelsToAdd.length === 0) {
+              labelsToAdd.push("ci:check-failed");
+            }
+
+            if (!makeCheckFailed && !buildFailed) {
+              labelsToAdd.push("ci:passed");
+            }
+
+            for (const name of Object.keys(managedLabels)) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number,
+                  name
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+            }
+
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number,
+                labels: labelsToAdd
+              });
+            }
+
+      - name: Fail workflow on check or build error
+        if: steps.make_check.outcome == 'failure' || steps.build.outcome == 'failure'
+        run: exit 1

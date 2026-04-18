@@ -1,0 +1,174 @@
+name: Draft Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: draft-release-main
+  cancel-in-progress: false
+
+jobs:
+  draft-release:
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Run make check
+        run: make check
+
+      - name: Build
+        run: make build
+
+      - name: Determine release bump
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          labels="$(
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --jq '.[0].labels[].name' 2>/dev/null || true
+          )"
+
+          normalized_labels="$(printf '%s\n' "${labels}" | tr '[:upper:]' '[:lower:]')"
+          bump="patch"
+
+          if printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:major|type:breaking|breaking-change|breaking)$'; then
+            bump="major"
+          elif printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:minor|type:feature|feature|enhancement)$'; then
+            bump="minor"
+          elif printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:patch|type:bug|bug|fix)$'; then
+            bump="patch"
+          fi
+
+          echo "bump=${bump}" >> "${GITHUB_OUTPUT}"
+          echo "labels<<EOF" >> "${GITHUB_OUTPUT}"
+          printf '%s\n' "${labels}" >> "${GITHUB_OUTPUT}"
+          echo "EOF" >> "${GITHUB_OUTPUT}"
+          echo "Detected release bump: ${bump}"
+
+      - name: Calculate next release version
+        id: release
+        env:
+          RELEASE_BUMP: ${{ steps.bump.outputs.bump }}
+        run: |
+          git fetch --force --tags origin
+
+          python3 <<'PY' >> "${GITHUB_OUTPUT}"
+          import os
+          import re
+          import subprocess
+
+          stable_semver = re.compile(r"^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+
+          def git_lines(*args):
+              output = subprocess.check_output(["git", *args], text=True)
+              return [line.strip() for line in output.splitlines() if line.strip()]
+
+          def parse_tag(tag):
+              match = stable_semver.match(tag)
+              if not match:
+                  return None
+              return tuple(int(part) for part in match.groups())
+
+          head_tags = []
+          for tag in git_lines("tag", "--points-at", "HEAD"):
+              version = parse_tag(tag)
+              if version is not None:
+                  head_tags.append((version, tag))
+
+          if head_tags:
+              version, tag = max(head_tags)
+          else:
+              bump = os.environ["RELEASE_BUMP"]
+              versions = []
+              for tag in git_lines("tag", "--list"):
+                  version = parse_tag(tag)
+                  if version is not None:
+                      versions.append(version)
+
+              if versions:
+                  major, minor, patch = max(versions)
+                  if bump == "major":
+                      version = (major + 1, 0, 0)
+                  elif bump == "minor":
+                      version = (major, minor + 1, 0)
+                  else:
+                      version = (major, minor, patch + 1)
+              else:
+                  version = (0, 1, 0)
+
+              tag = f"v{version[0]}.{version[1]}.{version[2]}"
+
+          version_text = f"{version[0]}.{version[1]}.{version[2]}"
+          print(f"version={version_text}")
+          print(f"tag={tag}")
+          print(f"bump={os.environ['RELEASE_BUMP']}")
+          PY
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<EOF
+          ## Why
+
+          This draft release was created automatically after changes were merged into \`main\`.
+
+          ## What is in this release
+
+          - Identity service changes merged into \`main\`.
+          - Verified with \`make check\`.
+          - Verified with \`make build\`.
+          - Release bump: \`${{ steps.release.outputs.bump }}\`.
+
+          ## Source
+
+          Commit: ${GITHUB_SHA}
+          EOF
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          release_state="$(gh release view "${TAG_NAME}" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
+
+          if [ "${release_state}" = "false" ]; then
+            echo "Release ${TAG_NAME} is already published; skipping draft update."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --force "${TAG_NAME}" "${GITHUB_SHA}"
+          git push --force origin "refs/tags/${TAG_NAME}"
+
+          if [ "${release_state}" = "true" ]; then
+            gh release edit "${TAG_NAME}" \
+              --draft \
+              --title "${TAG_NAME}" \
+              --notes-file release-notes.md
+          else
+            gh release create "${TAG_NAME}" \
+              --draft \
+              --title "${TAG_NAME}" \
+              --notes-file release-notes.md \
+              --target "${GITHUB_SHA}"
+          fi

@@ -90,6 +90,26 @@ current stable Rust image used by Docker.
 PostgreSQL 18 stores versioned database data under `/var/lib/postgresql`, so the
 Compose volume is mounted there instead of directly at `/var/lib/postgresql/data`.
 
+## Automation
+
+CI runs `make check` and `make build` on every push and pull request.
+
+When changes are merged into `main`, GitHub Actions creates or updates a draft
+release with an automatically incremented semantic version tag. If no semantic
+release tag exists, it starts at `v0.1.0`.
+
+Release increments are based on the merged pull request labels:
+
+- Breaking changes use a major bump, such as `v1.2.3` to `v2.0.0`.
+- Bug fixes use a patch bump, such as `v0.1.0` to `v0.1.1`.
+- Features use a minor bump, such as `v0.1.0` to `v0.2.0`.
+
+Use `type:bug` or `release:patch` for bug fixes. Use `type:feature` or
+`release:minor` for features. Use `breaking-change` or `release:major` for
+breaking changes. Major wins over minor and patch, minor wins over patch, and
+patch is the default when no release label is present. Published releases are
+not modified automatically.
+
 ## Development
 
 Keep domain logic in `src/lib.rs` or modules under `src/`, and keep `src/main.rs`
