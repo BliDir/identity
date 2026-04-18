@@ -1,0 +1,27 @@
+[package]
+name = "identity"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95.0"
+license = "Apache-2.0"
+description = "Identity service for managing identity-related application workflows."
+repository = ""
+readme = "README.md"
+keywords = ["identity", "service"]
+categories = ["authentication"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "identity"
+path = "src/main.rs"
+
+[dependencies]
+
+[dev-dependencies]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
