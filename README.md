@@ -110,6 +110,10 @@ breaking changes. Major wins over minor and patch, minor wins over patch, and
 patch is the default when no release label is present. Published releases are
 not modified automatically.
 
+Draft releases include the merged pull request, release bump type, source commit,
+and commit contributors. The draft release is created before a Git tag is pushed;
+GitHub creates the tag when an engineer manually publishes the draft release.
+
 ## Development
 
 Keep domain logic in `src/lib.rs` or modules under `src/`, and keep `src/main.rs`

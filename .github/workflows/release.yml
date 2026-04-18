@@ -40,11 +40,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          labels="$(
+          pr_json="$(
             gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
               -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              --jq '.[0].labels[].name' 2>/dev/null || true
+              -H "X-GitHub-Api-Version: 2022-11-28" 2>/dev/null || echo "[]"
+          )"
+
+          labels="$(
+            printf '%s' "${pr_json}" \
+              | python3 -c 'import json, sys; data = json.load(sys.stdin); print("\n".join(label["name"] for label in (data[0].get("labels", []) if data else [])))'
+          )"
+
+          pr_number="$(
+            printf '%s' "${pr_json}" \
+              | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data[0]["number"] if data else "")'
+          )"
+          pr_title="$(
+            printf '%s' "${pr_json}" \
+              | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data[0]["title"] if data else "")'
+          )"
+          pr_author="$(
+            printf '%s' "${pr_json}" \
+              | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data[0]["user"]["login"] if data else "")'
           )"
 
           normalized_labels="$(printf '%s\n' "${labels}" | tr '[:upper:]' '[:lower:]')"
@@ -62,6 +79,9 @@ jobs:
           echo "labels<<EOF" >> "${GITHUB_OUTPUT}"
           printf '%s\n' "${labels}" >> "${GITHUB_OUTPUT}"
           echo "EOF" >> "${GITHUB_OUTPUT}"
+          echo "pr_number=${pr_number}" >> "${GITHUB_OUTPUT}"
+          echo "pr_title=${pr_title}" >> "${GITHUB_OUTPUT}"
+          echo "pr_author=${pr_author}" >> "${GITHUB_OUTPUT}"
           echo "Detected release bump: ${bump}"
 
       - name: Calculate next release version
@@ -96,16 +116,20 @@ jobs:
 
           if head_tags:
               version, tag = max(head_tags)
+              previous_tag = tag
           else:
               bump = os.environ["RELEASE_BUMP"]
               versions = []
+              tags_by_version = {}
               for tag in git_lines("tag", "--list"):
                   version = parse_tag(tag)
                   if version is not None:
                       versions.append(version)
+                      tags_by_version[version] = tag
 
               if versions:
                   major, minor, patch = max(versions)
+                  previous_tag = tags_by_version[(major, minor, patch)]
                   if bump == "major":
                       version = (major + 1, 0, 0)
                   elif bump == "minor":
@@ -113,6 +137,7 @@ jobs:
                   else:
                       version = (major, minor, patch + 1)
               else:
+                  previous_tag = ""
                   version = (0, 1, 0)
 
               tag = f"v{version[0]}.{version[1]}.{version[2]}"
@@ -121,10 +146,37 @@ jobs:
           print(f"version={version_text}")
           print(f"tag={tag}")
           print(f"bump={os.environ['RELEASE_BUMP']}")
+          print(f"previous_tag={previous_tag}")
           PY
 
       - name: Write release notes
+        env:
+          PREVIOUS_TAG: ${{ steps.release.outputs.previous_tag }}
+          PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
+          PR_TITLE: ${{ steps.bump.outputs.pr_title }}
+          PR_AUTHOR: ${{ steps.bump.outputs.pr_author }}
         run: |
+          if [ -n "${PREVIOUS_TAG}" ]; then
+            contributor_range="${PREVIOUS_TAG}..HEAD"
+          else
+            contributor_range="HEAD"
+          fi
+
+          contributors="$(
+            git log "${contributor_range}" --format='%aN <%aE>' \
+              | sort -fu \
+              | sed 's/^/- /'
+          )"
+
+          if [ -z "${contributors}" ]; then
+            contributors="- No commit contributors detected."
+          fi
+
+          pr_source="- No merged pull request detected for this commit."
+          if [ -n "${PR_NUMBER}" ]; then
+            pr_source="- #${PR_NUMBER} ${PR_TITLE} by @${PR_AUTHOR}"
+          fi
+
           cat > release-notes.md <<EOF
           ## Why
 
@@ -140,6 +192,14 @@ jobs:
           ## Source
 
           Commit: ${GITHUB_SHA}
+
+          ## Merged Pull Request
+
+          ${pr_source}
+
+          ## Contributors
+
+          ${contributors}
           EOF
 
       - name: Create or update draft release
@@ -148,27 +208,41 @@ jobs:
           TAG_NAME: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
-          release_state="$(gh release view "${TAG_NAME}" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
+          release_json="$(
+            gh api "repos/${GITHUB_REPOSITORY}/releases" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --jq ".[] | select(.tag_name == \"${TAG_NAME}\")" 2>/dev/null || true
+          )"
 
-          if [ "${release_state}" = "false" ]; then
+          release_id="$(printf '%s' "${release_json}" | python3 -c 'import json, sys; raw = sys.stdin.read().strip(); print(json.loads(raw)["id"] if raw else "")')"
+          release_draft="$(printf '%s' "${release_json}" | python3 -c 'import json, sys; raw = sys.stdin.read().strip(); print(str(json.loads(raw)["draft"]).lower() if raw else "missing")')"
+
+          if [ "${release_draft}" = "false" ]; then
             echo "Release ${TAG_NAME} is already published; skipping draft update."
             exit 0
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag --force "${TAG_NAME}" "${GITHUB_SHA}"
-          git push --force origin "refs/tags/${TAG_NAME}"
-
-          if [ "${release_state}" = "true" ]; then
-            gh release edit "${TAG_NAME}" \
-              --draft \
-              --title "${TAG_NAME}" \
-              --notes-file release-notes.md
+          if [ "${release_draft}" = "true" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -f tag_name="${TAG_NAME}" \
+              -f target_commitish="${GITHUB_SHA}" \
+              -f name="${TAG_NAME}" \
+              -F draft=true \
+              -F prerelease=false \
+              -f body="$(cat release-notes.md)" >/dev/null
           else
-            gh release create "${TAG_NAME}" \
-              --draft \
-              --title "${TAG_NAME}" \
-              --notes-file release-notes.md \
-              --target "${GITHUB_SHA}"
+            gh api "repos/${GITHUB_REPOSITORY}/releases" \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -f tag_name="${TAG_NAME}" \
+              -f target_commitish="${GITHUB_SHA}" \
+              -f name="${TAG_NAME}" \
+              -F draft=true \
+              -F prerelease=false \
+              -f body="$(cat release-notes.md)" >/dev/null
           fi
