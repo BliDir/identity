@@ -111,8 +111,9 @@ patch is the default when no release label is present. Published releases are
 not modified automatically.
 
 Draft releases include the merged pull request, release bump type, source commit,
-and commit contributors. The draft release is created before a Git tag is pushed;
-GitHub creates the tag when an engineer manually publishes the draft release.
+GitHub contributor links with avatar icons when available, and commit authors as
+a fallback. The draft release is created before a Git tag is pushed; GitHub
+creates the tag when an engineer manually publishes the draft release.
 
 ## Development
 

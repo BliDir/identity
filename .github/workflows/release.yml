@@ -151,6 +151,7 @@ jobs:
 
       - name: Write release notes
         env:
+          GH_TOKEN: ${{ github.token }}
           PREVIOUS_TAG: ${{ steps.release.outputs.previous_tag }}
           PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
           PR_TITLE: ${{ steps.bump.outputs.pr_title }}
@@ -162,15 +163,33 @@ jobs:
             contributor_range="HEAD"
           fi
 
+          commit_shas="$(
+            git log "${contributor_range}" --format='%H'
+          )"
+
           contributors="$(
+            {
+              if [ -n "${PR_AUTHOR}" ]; then
+                printf '%s\n' "${PR_AUTHOR}"
+              fi
+
+              for commit_sha in ${commit_shas}; do
+                gh api "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  --jq '.author.login // empty' 2>/dev/null || true
+              done
+            } \
+              | awk 'NF' \
+              | sort -fu \
+              | awk '{ printf "- <a href=\"https://github.com/%s\"><img src=\"https://github.com/%s.png?size=40\" width=\"20\" height=\"20\" alt=\"@%s\" /> @%s</a>\n", $0, $0, $0, $0 }'
+          )"
+
+          unmapped_contributors="$(
             git log "${contributor_range}" --format='%aN <%aE>' \
               | sort -fu \
               | sed 's/^/- /'
           )"
-
-          if [ -z "${contributors}" ]; then
-            contributors="- No commit contributors detected."
-          fi
 
           pr_source="- No merged pull request detected for this commit."
           if [ -n "${PR_NUMBER}" ]; then
@@ -200,6 +219,10 @@ jobs:
           ## Contributors
 
           ${contributors}
+
+          ## Commit Authors
+
+          ${unmapped_contributors}
           EOF
 
       - name: Create or update draft release
