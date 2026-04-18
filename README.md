@@ -96,9 +96,16 @@ CI runs `make check` and `make build` on every push and pull request.
 
 When changes are merged into `main`, GitHub Actions creates or updates a draft
 release with an automatically incremented semantic version tag. If no semantic
-release tag exists, it starts at `v0.1.0`; otherwise it increments the patch
-version, such as `v0.1.0` to `v0.1.1`. Published releases are not modified
-automatically.
+release tag exists, it starts at `v0.1.0`.
+
+Release increments are based on the merged pull request labels:
+
+- Bug fixes use a patch bump, such as `v0.1.0` to `v0.1.1`.
+- Features use a minor bump, such as `v0.1.0` to `v0.2.0`.
+
+Use `type:bug` or `release:patch` for bug fixes. Use `type:feature` or
+`release:minor` for features. Patch is the default when no release label is
+present. Published releases are not modified automatically.
 
 ## Development
 

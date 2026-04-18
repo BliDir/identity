@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
 
 concurrency:
   group: draft-release-main
@@ -34,12 +35,42 @@ jobs:
       - name: Build
         run: make build
 
+      - name: Determine release bump
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          labels="$(
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --jq '.[0].labels[].name' 2>/dev/null || true
+          )"
+
+          normalized_labels="$(printf '%s\n' "${labels}" | tr '[:upper:]' '[:lower:]')"
+          bump="patch"
+
+          if printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:minor|type:feature|feature|enhancement)$'; then
+            bump="minor"
+          elif printf '%s\n' "${normalized_labels}" | grep -Eq '^(release:patch|type:bug|bug|fix)$'; then
+            bump="patch"
+          fi
+
+          echo "bump=${bump}" >> "${GITHUB_OUTPUT}"
+          echo "labels<<EOF" >> "${GITHUB_OUTPUT}"
+          printf '%s\n' "${labels}" >> "${GITHUB_OUTPUT}"
+          echo "EOF" >> "${GITHUB_OUTPUT}"
+          echo "Detected release bump: ${bump}"
+
       - name: Calculate next release version
         id: release
+        env:
+          RELEASE_BUMP: ${{ steps.bump.outputs.bump }}
         run: |
           git fetch --force --tags origin
 
           python3 <<'PY' >> "${GITHUB_OUTPUT}"
+          import os
           import re
           import subprocess
 
@@ -64,6 +95,7 @@ jobs:
           if head_tags:
               version, tag = max(head_tags)
           else:
+              bump = os.environ["RELEASE_BUMP"]
               versions = []
               for tag in git_lines("tag", "--list"):
                   version = parse_tag(tag)
@@ -72,7 +104,10 @@ jobs:
 
               if versions:
                   major, minor, patch = max(versions)
-                  version = (major, minor, patch + 1)
+                  if bump == "minor":
+                      version = (major, minor + 1, 0)
+                  else:
+                      version = (major, minor, patch + 1)
               else:
                   version = (0, 1, 0)
 
@@ -81,6 +116,7 @@ jobs:
           version_text = f"{version[0]}.{version[1]}.{version[2]}"
           print(f"version={version_text}")
           print(f"tag={tag}")
+          print(f"bump={os.environ['RELEASE_BUMP']}")
           PY
 
       - name: Write release notes
@@ -95,6 +131,7 @@ jobs:
           - Identity service changes merged into \`main\`.
           - Verified with \`make check\`.
           - Verified with \`make build\`.
+          - Release bump: \`${{ steps.release.outputs.bump }}\`.
 
           ## Source
 

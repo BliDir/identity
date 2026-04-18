@@ -109,6 +109,43 @@ jobs:
               }
             }
 
+            const releaseLabels = {
+              "type:bug": {
+                color: "D73A4A",
+                description: "Bug fix; draft release workflow uses a patch version bump"
+              },
+              "type:feature": {
+                color: "A2EEEF",
+                description: "Feature change; draft release workflow uses a minor version bump"
+              },
+              "release:patch": {
+                color: "C2E0C6",
+                description: "Force a patch version bump for the next draft release"
+              },
+              "release:minor": {
+                color: "BFDADC",
+                description: "Force a minor version bump for the next draft release"
+              }
+            };
+
+            for (const [name, metadata] of Object.entries(releaseLabels)) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: metadata.color,
+                  description: metadata.description
+                });
+              }
+            }
+
             const makeCheckFailed = "${{ steps.make_check.outcome }}" === "failure";
             const formatFailed = "${{ steps.fmt.outcome }}" === "failure";
             const lintFailed = "${{ steps.lint.outcome }}" === "failure";
