@@ -32,6 +32,19 @@ jobs:
         continue-on-error: true
         run: make check
 
+      - name: Install coverage tooling
+        id: coverage_tooling
+        continue-on-error: true
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
+
+      - name: Run make coverage
+        id: coverage
+        if: steps.coverage_tooling.outcome == 'success'
+        continue-on-error: true
+        run: make coverage
+
       - name: Update PR labels
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -49,6 +62,10 @@ jobs:
               "ci:check-failed": {
                 color: "D93F0B",
                 description: "make check failed"
+              },
+              "ci:coverage-failed": {
+                color: "D93F0B",
+                description: "Code coverage is below 80% or coverage tooling failed"
               }
             };
 
@@ -116,7 +133,13 @@ jobs:
             }
 
             const makeCheckFailed = "${{ steps.make_check.outcome }}" === "failure";
-            const latestStatusLabel = makeCheckFailed ? "ci:check-failed" : "ci:passed";
+            const coverageToolingFailed = "${{ steps.coverage_tooling.outcome }}" === "failure";
+            const coverageFailed = "${{ steps.coverage.outcome }}" === "failure";
+            const latestStatusLabel = makeCheckFailed
+              ? "ci:check-failed"
+              : coverageToolingFailed || coverageFailed
+                ? "ci:coverage-failed"
+                : "ci:passed";
 
             const currentLabels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
               owner,
@@ -151,6 +174,6 @@ jobs:
               labels: [latestStatusLabel]
             });
 
-      - name: Fail workflow on check error
-        if: steps.make_check.outcome == 'failure'
+      - name: Fail workflow on check or coverage error
+        if: steps.make_check.outcome == 'failure' || steps.coverage_tooling.outcome == 'failure' || steps.coverage.outcome == 'failure'
         run: exit 1

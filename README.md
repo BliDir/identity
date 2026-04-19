@@ -7,6 +7,7 @@ Identity service for managing identity-related application workflows.
 - Rust `1.95.0`
 - `make`
 - Docker and Docker Compose, for running PostgreSQL locally
+- `cargo-llvm-cov`, for local coverage reports
 
 ## Check Locally
 
@@ -23,6 +24,14 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 ```
+
+Check line coverage:
+
+```sh
+make coverage
+```
+
+`make coverage` enforces at least 80% line coverage.
 
 ## Run Locally
 
