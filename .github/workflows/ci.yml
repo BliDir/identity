@@ -41,22 +41,10 @@ jobs:
             const repo = context.repo.repo;
             const issue_number = context.payload.pull_request.number;
 
-            const managedLabels = {
+            const statusLabels = {
               "ci:passed": {
                 color: "0E8A16",
                 description: "All CI checks passed"
-              },
-              "ci:format-failed": {
-                color: "D93F0B",
-                description: "Rust formatting check failed"
-              },
-              "ci:lint-failed": {
-                color: "D93F0B",
-                description: "Clippy lint check failed"
-              },
-              "ci:test-failed": {
-                color: "D93F0B",
-                description: "Test suite failed"
               },
               "ci:check-failed": {
                 color: "D93F0B",
@@ -64,7 +52,7 @@ jobs:
               }
             };
 
-            for (const [name, metadata] of Object.entries(managedLabels)) {
+            for (const [name, metadata] of Object.entries(statusLabels)) {
               try {
                 await github.rest.issues.getLabel({ owner, repo, name });
               } catch (error) {
@@ -128,24 +116,26 @@ jobs:
             }
 
             const makeCheckFailed = "${{ steps.make_check.outcome }}" === "failure";
+            const latestStatusLabel = makeCheckFailed ? "ci:check-failed" : "ci:passed";
 
-            const labelsToAdd = [];
+            const currentLabels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
 
-            if (makeCheckFailed) {
-              labelsToAdd.push("ci:check-failed");
-            }
+            for (const label of currentLabels) {
+              if (!label.name.startsWith("ci:")) {
+                continue;
+              }
 
-            if (!makeCheckFailed) {
-              labelsToAdd.push("ci:passed");
-            }
-
-            for (const name of Object.keys(managedLabels)) {
               try {
                 await github.rest.issues.removeLabel({
                   owner,
                   repo,
                   issue_number,
-                  name
+                  name: label.name
                 });
               } catch (error) {
                 if (error.status !== 404) {
@@ -154,14 +144,12 @@ jobs:
               }
             }
 
-            if (labelsToAdd.length > 0) {
-              await github.rest.issues.addLabels({
-                owner,
-                repo,
-                issue_number,
-                labels: labelsToAdd
-              });
-            }
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: [latestStatusLabel]
+            });
 
       - name: Fail workflow on check error
         if: steps.make_check.outcome == 'failure'
