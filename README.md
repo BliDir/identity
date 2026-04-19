@@ -8,13 +8,7 @@ Identity service for managing identity-related application workflows.
 - `make`
 - Docker and Docker Compose, for running PostgreSQL locally
 
-## Build Locally
-
-Build all targets and features:
-
-```sh
-make build
-```
+## Check Locally
 
 Run the full local verification gate:
 
@@ -32,35 +26,13 @@ cargo test --all-targets --all-features
 
 ## Run Locally
 
-Run the Rust binary directly:
+Run the service and PostgreSQL with Docker Compose:
 
 ```sh
 make run
 ```
 
-Run the service with PostgreSQL through Docker Compose:
-
-```sh
-make docker-up
-```
-
-Follow container logs:
-
-```sh
-make docker-logs
-```
-
-Stop the local stack:
-
-```sh
-make docker-down
-```
-
-Stop the local stack and remove PostgreSQL data:
-
-```sh
-make docker-clean
-```
+Press `Ctrl-C` to stop the local stack.
 
 PostgreSQL is exposed locally with these development credentials:
 

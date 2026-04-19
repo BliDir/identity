@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   check:
-    name: Make Check And Build
+    name: Make Check
     runs-on: ubuntu-latest
 
     steps:
@@ -31,29 +31,6 @@ jobs:
         id: make_check
         continue-on-error: true
         run: make check
-
-      - name: Diagnose formatting
-        id: fmt
-        if: steps.make_check.outcome == 'failure'
-        continue-on-error: true
-        run: make fmt
-
-      - name: Diagnose lint
-        id: lint
-        if: steps.make_check.outcome == 'failure'
-        continue-on-error: true
-        run: make lint
-
-      - name: Diagnose tests
-        id: test
-        if: steps.make_check.outcome == 'failure'
-        continue-on-error: true
-        run: make test
-
-      - name: Build
-        id: build
-        continue-on-error: true
-        run: make build
 
       - name: Update PR labels
         if: github.event_name == 'pull_request'
@@ -80,10 +57,6 @@ jobs:
               "ci:test-failed": {
                 color: "D93F0B",
                 description: "Test suite failed"
-              },
-              "ci:build-error": {
-                color: "B60205",
-                description: "Build failed"
               },
               "ci:check-failed": {
                 color: "D93F0B",
@@ -155,34 +128,14 @@ jobs:
             }
 
             const makeCheckFailed = "${{ steps.make_check.outcome }}" === "failure";
-            const formatFailed = "${{ steps.fmt.outcome }}" === "failure";
-            const lintFailed = "${{ steps.lint.outcome }}" === "failure";
-            const testFailed = "${{ steps.test.outcome }}" === "failure";
-            const buildFailed = "${{ steps.build.outcome }}" === "failure";
 
             const labelsToAdd = [];
 
-            if (formatFailed) {
-              labelsToAdd.push("ci:format-failed");
-            }
-
-            if (lintFailed) {
-              labelsToAdd.push("ci:lint-failed");
-            }
-
-            if (testFailed) {
-              labelsToAdd.push("ci:test-failed");
-            }
-
-            if (buildFailed) {
-              labelsToAdd.push("ci:build-error");
-            }
-
-            if (makeCheckFailed && labelsToAdd.length === 0) {
+            if (makeCheckFailed) {
               labelsToAdd.push("ci:check-failed");
             }
 
-            if (!makeCheckFailed && !buildFailed) {
+            if (!makeCheckFailed) {
               labelsToAdd.push("ci:passed");
             }
 
@@ -210,6 +163,6 @@ jobs:
               });
             }
 
-      - name: Fail workflow on check or build error
-        if: steps.make_check.outcome == 'failure' || steps.build.outcome == 'failure'
+      - name: Fail workflow on check error
+        if: steps.make_check.outcome == 'failure'
         run: exit 1
