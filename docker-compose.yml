@@ -8,7 +8,10 @@ services:
         DEBIAN_VERSION: "trixie"
     environment:
       DATABASE_URL: postgres://identity:identity@postgres:5432/identity
+      PORT: 3000
       RUST_LOG: info
+    ports:
+      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy

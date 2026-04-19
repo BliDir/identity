@@ -38,6 +38,12 @@ Run the Rust binary directly:
 make run
 ```
 
+The service listens on port `3000` by default. Check service health with:
+
+```sh
+curl http://localhost:3000/health
+```
+
 Run the service with PostgreSQL through Docker Compose:
 
 ```sh
