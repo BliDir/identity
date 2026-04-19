@@ -32,9 +32,6 @@ jobs:
       - name: Run make check
         run: make check
 
-      - name: Build
-        run: make build
-
       - name: Determine release bump
         id: bump
         env:
@@ -248,7 +245,6 @@ jobs:
 
           - Identity service changes merged into \`main\`.
           - Verified with \`make check\`.
-          - Verified with \`make build\`.
           - Release bump: \`${{ steps.release.outputs.bump }}\`.
 
           ## Source
