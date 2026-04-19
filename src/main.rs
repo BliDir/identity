@@ -13,7 +13,7 @@ async fn main() {
 
     println!("{} listening on http://{addr}", identity::package_name());
 
-    axum::serve(listener, identity::app())
+    axum::serve(listener, identity::router::app())
         .await
         .expect("server should run");
 }
